@@ -580,6 +580,7 @@ def page_shell(title: str, prefix: str, body: str, description: str = "",
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
 <title>{html.escape(title)}</title>
 {f'<meta name="description" content="{desc}">' if desc else ''}
 <link rel="preconnect" href="https://fonts.googleapis.com">
