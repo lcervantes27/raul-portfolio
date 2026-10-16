@@ -30,14 +30,25 @@ DEFAULT_SOURCES = [
     ROOT / "data" / "content.json",
 ]
 
-# Campos de sección que no aportan contenido visible y que se descartan al
-# depurar (incluyen ajustes internos de la plataforma y mockups de dispositivos).
+# Campos internos de la plataforma que no aportan contenido visible.
 DROP_SECTION_KEYS = {
-    "_id", "index", "deletedAt", "copyStatus", "styleSettings",
-    "backgroundSettings", "moduleBackgroundSettings", "overlaySettings",
-    "designSettings", "foregroundColorSettings", "layoutSettings",
-    "sectionImageUrl", "mockupSettings", "thumbnailData", "settings",
+    "_id", "index", "deletedAt", "copyStatus", "designSettings",
+    "foregroundColorSettings", "sectionImageUrl", "thumbnailData",
 }
+
+# Familias tipográficas que puede referenciar el contenido.
+FONT_URL = (
+    "https://fonts.googleapis.com/css2?"
+    "family=Bricolage+Grotesque:wght@400;600;700&"
+    "family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&"
+    "family=Lato:ital,wght@0,400;0,700;1,400&"
+    "family=PT+Serif:ital,wght@0,400;0,700;1,400&"
+    "family=Roboto:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&"
+    "family=Sora:wght@400;500;600;700&"
+    "family=Source+Sans+Pro:ital,wght@0,400;0,600;1,400&"
+    "display=swap"
+)
+
 
 # --------------------------------------------------------------------------
 # Utilidades
@@ -52,14 +63,12 @@ def slugify(value: str) -> str:
 
 
 def clean_name(value: str) -> str:
-    """Quita el sufijo de idioma que la plataforma añade al nombre (p. ej. ' English')."""
     if not value:
         return ""
     return re.sub(r"\s+(English|Spanish|Español)\s*$", "", value).strip()
 
 
 def col_span(section: dict) -> int:
-    """Ancho de la sección en la retícula de 12 columnas, si está declarado."""
     modules = ((section.get("layoutSettings") or {}).get("modules") or [])
     for module in modules:
         grid = (module or {}).get("gridSettings") or {}
@@ -67,6 +76,11 @@ def col_span(section: dict) -> int:
         if isinstance(start, int) and isinstance(end, int) and end > start:
             return max(1, min(12, end - start))
     return 12
+
+
+def is_full_bleed(section: dict) -> bool:
+    modules = ((section.get("layoutSettings") or {}).get("modules") or [])
+    return any(bool((m or {}).get("gridSettings", {}).get("isFullBleed")) for m in modules)
 
 
 def width_class(span: int) -> str:
@@ -77,25 +91,39 @@ def width_class(span: int) -> str:
     return "container"
 
 
-def pad_style(section: dict) -> str:
-    style = section.get("styleSettings") or {}
-    top, bottom = style.get("paddingTop"), style.get("paddingBottom")
+def section_attrs(section: dict) -> str:
     parts = []
-    if isinstance(top, (int, float)):
-        parts.append(f"--section-padding-top:{int(top)}px")
-    if isinstance(bottom, (int, float)):
-        parts.append(f"--section-padding-bottom:{int(bottom)}px")
+    st = section.get("styleSettings") or {}
+    if isinstance(st.get("paddingTop"), (int, float)):
+        parts.append(f"--pt:{int(st['paddingTop'])}px")
+    if isinstance(st.get("paddingBottom"), (int, float)):
+        parts.append(f"--pb:{int(st['paddingBottom'])}px")
+    bg = section.get("backgroundSettings") or {}
+    if bg.get("usingCustomBackground") or bg.get("gradientColor1") or bg.get("backgroundColor"):
+        c1 = bg.get("gradientColor1") or bg.get("backgroundColor")
+        c2 = bg.get("gradientColor2") or c1
+        if bg.get("selectedBackgroundStyleId") == "1" and c2 != c1:
+            parts.append(f"--sec-bg:linear-gradient({c1},{c2})")
+        else:
+            parts.append(f"--sec-bg:{c1}")
     return f' style="{";".join(parts)}"' if parts else ""
 
 
 def text_of(node) -> str:
-    """Extrae el HTML de un nodo {text: ...} o devuelve el string tal cual."""
     if node is None:
         return ""
     if isinstance(node, str):
         return node
     if isinstance(node, dict):
         return node.get("text") or ""
+    return ""
+
+
+def text_align(node) -> str:
+    if isinstance(node, dict):
+        a = ((node.get("style") or {}).get("textAlign") or "").lower()
+        if a in ("left", "center", "right"):
+            return a
     return ""
 
 
@@ -110,8 +138,6 @@ def is_meaningful_url(url: str) -> bool:
 
 
 class Assets:
-    """Traduce URLs remotas a rutas locales dentro del repositorio."""
-
     def __init__(self, img_dir: Path, prefix: str):
         self.img_dir = img_dir
         self.prefix = prefix
@@ -125,7 +151,6 @@ class Assets:
             return ""
         name = url.split("?")[0].rstrip("/").split("/")[-1]
         if "." not in name:
-            # No es un archivo (p. ej. una URL de perfil): no es una imagen perdida.
             return ""
         if name not in self.available:
             self.missing.add(name)
@@ -133,17 +158,32 @@ class Assets:
         return f"{self.prefix}assets/img/{name}"
 
 
-def media_html(media: dict, assets: Assets, caption_class: str = "") -> str:
-    """Renderiza un bloque de media: imagen, iframe de vídeo o etiqueta video."""
+def mockup_class(media: dict) -> str:
+    """Determina si la imagen va dentro de un marco de dispositivo."""
+    if not isinstance(media, dict):
+        return ""
+    ms = media.get("mockupSettings") or {}
+    device = (ms.get("deviceType") or "").lower()
+    if device in ("mobile", "phone"):
+        return "mockup mockup--mobile"
+    if device in ("laptop", "desktop", "tablet"):
+        return "mockup mockup--laptop"
+    frame = media.get("frame") or ""
+    if frame.startswith("mobile"):
+        return "mockup mockup--mobile"
+    if frame.startswith("laptop"):
+        return "mockup mockup--laptop"
+    return ""
+
+
+def media_html(media: dict, assets: Assets) -> str:
     if not isinstance(media, dict):
         return ""
     url = image_url(media)
     caption = media.get("caption") or ""
     kind = (media.get("type") or "").lower()
     display = media.get("displayMode") or "default"
-
-    if not url and not caption:
-        return ""
+    mclass = mockup_class(media)
 
     if kind == "video" and url:
         if re.search(r"(youtube\.com/embed|player\.vimeo\.com)", url):
@@ -152,20 +192,19 @@ def media_html(media: dict, assets: Assets, caption_class: str = "") -> str:
                 'loading="lazy" allowfullscreen></iframe></div>'
             )
         else:
-            inner = (
-                f'<video controls preload="metadata" src="{html.escape(url)}"></video>'
-            )
+            inner = f'<video controls preload="metadata" src="{html.escape(url)}"></video>'
     else:
         local = assets.path(url)
-        if local:
-            inner = f'<img src="{local}" alt="" loading="lazy">'
-        else:
+        if not local:
             inner = ""
+        elif mclass:
+            inner = f'<div class="{mclass}"><img src="{local}" alt="" loading="lazy"></div>'
+        else:
+            inner = f'<img src="{local}" alt="" loading="lazy">'
 
     if not inner and not caption:
         return ""
-
-    cap = f'<figcaption class="{caption_class}">{caption}</figcaption>' if caption else ""
+    cap = f"<figcaption>{caption}</figcaption>" if caption else ""
     return f'<figure class="media media--{display}">{inner}{cap}</figure>'
 
 
@@ -178,11 +217,12 @@ def cta_html(cta) -> str:
 
 
 def section_shell(section: dict, body: str, extra_class: str = "") -> str:
-    span = col_span(section)
     cls = f"sec {extra_class}".strip()
+    if is_full_bleed(section):
+        return f'<section class="{cls}"{section_attrs(section)}>{body}</section>'
     return (
-        f'<section class="{cls}"{pad_style(section)}>'
-        f'<div class="{width_class(span)}">{body}</div>'
+        f'<section class="{cls}"{section_attrs(section)}>'
+        f'<div class="{width_class(col_span(section))}">{body}</div>'
         f"</section>"
     )
 
@@ -193,11 +233,17 @@ def section_shell(section: dict, body: str, extra_class: str = "") -> str:
 
 
 def r_header(s, a, ctx):
-    return f'<div class="prose center-maybe">{text_of(s.get("title")) or text_of(s.get("sectionTitle"))}</div>'
+    node = s.get("title") or {"text": text_of(s.get("sectionTitle"))}
+    align = text_align(node)
+    cls = f"prose align-{align}" if align else "prose"
+    return f'<div class="{cls}">{text_of(node)}</div>'
 
 
 def r_text(s, a, ctx):
-    return f'<div class="prose">{text_of(s.get("text"))}</div>'
+    node = s.get("text") or {}
+    align = text_align(node)
+    cls = f"prose align-{align}" if align else "prose"
+    return f'<div class="{cls}">{text_of(node)}</div>'
 
 
 def r_divider(s, a, ctx):
@@ -206,22 +252,19 @@ def r_divider(s, a, ctx):
     color = settings.get("color") or "#0d0d0d"
     text = text_of(title) or text_of(s.get("sectionTitle"))
     font_color = (title.get("style") or {}).get("fontColor")
-    position = settings.get("text_position") or "in_line"
+    weight = (settings.get("weight") or "weight-medium").replace("weight-", "")
     align = settings.get("text_alignment") or "left"
     style = f"background:{html.escape(color)}"
-    text_style = f" style=\"color:{html.escape(font_color)}\"" if font_color else ""
-    if position == "in_line":
-        return (
-            f'<div class="divider divider--{align}">'
-            f'<span class="divider__line" style="{style}"></span>'
-            f'<span class="divider__text"{text_style}>{text}</span>'
-            f"</div>"
-        )
+    text_style = f' style="color:{html.escape(font_color)}"' if font_color else ""
+
+    line = f'<span class="divider__line divider__line--{weight}" style="{style}"></span>'
+    if settings.get("text_position") == "no_text":
+        return f'<div class="divider divider--{align}">{line}</div>'
+    if not text:
+        return f'<div class="divider divider--{align}">{line}</div>'
     return (
-        f'<div class="divider divider--stacked divider--{align}">'
-        f'<span class="divider__text"{text_style}>{text}</span>'
-        f'<span class="divider__line" style="{style}"></span>'
-        f"</div>"
+        f'<div class="divider divider--{align}">'
+        f'{line}<span class="divider__text"{text_style}>{text}</span></div>'
     )
 
 
@@ -234,29 +277,27 @@ def r_textmedia(s, a, ctx):
     text = text_of(s.get("text"))
     media = s.get("media") or {}
     flipped = bool(settings.get("flipped", False))
-    # Estos campos pueden venir como null; null equivale a "visible si hay
-    # contenido". Usar dict.get(k, True) devolvería None y ocultaría el bloque.
     show_text = settings.get("showText")
     show_media = settings.get("showMedia")
     if show_text is None:
         show_text = True
     if show_media is None:
         show_media = True
+    align = text_align(s.get("text"))
 
     cls = "textmedia"
-    # Verificado contra el DOM original: flipped=true deja el texto primero
-    # (izquierda) y la media después; el orden por defecto es media primero.
     if not flipped:
         cls += " textmedia--media-first"
     if show_media and not show_text:
-        cls = "textmedia textmedia--text-only"
+        cls += " textmedia--text-only"
     if show_text and not show_media:
-        cls = "textmedia textmedia--text-only"
+        cls += " textmedia--text-only"
 
     parts = []
     extra = cta_html(s.get("cta"))
+    text_cls = f"textmedia__text prose align-{align}" if align else "textmedia__text prose"
     if show_text and (text or extra):
-        parts.append(f'<div class="textmedia__text prose">{text}{extra}</div>')
+        parts.append(f'<div class="{text_cls}">{text}{extra}</div>')
     elif extra:
         parts.append(f'<div class="textmedia__cta">{extra}</div>')
     if show_media:
@@ -275,7 +316,9 @@ def r_columns(s, a, ctx):
     for col in cols:
         text = text_of((col or {}).get("text"))
         media = media_html((col or {}).get("media") or {}, a)
-        inner = f'<div class="prose">{text}</div>' if text else ""
+        align = text_align((col or {}).get("text"))
+        cls = f"prose align-{align}" if align else "prose"
+        inner = f'<div class="{cls}">{text}</div>' if text else ""
         items.append(f'<div class="columns__col">{media}{inner}</div>')
     return f'<div class="columns columns--{n}">{"".join(items)}</div>'
 
@@ -286,11 +329,17 @@ def r_stat(s, a, ctx):
         return ""
     out = []
     for it in items:
-        value = text_of((it or {}).get("data"))
-        desc = text_of((it or {}).get("description"))
+        data_node = (it or {}).get("data") or {}
+        desc_node = (it or {}).get("description") or {}
+        value = text_of(data_node)
+        desc = text_of(desc_node)
+        vsize = (data_node.get("style") or {}).get("fontSize")
+        dsize = (desc_node.get("style") or {}).get("fontSize")
+        vstyle = f' style="--stat-value:{vsize}px"' if isinstance(vsize, (int, float)) else ""
+        dstyle = f' style="--stat-label:{dsize}px"' if isinstance(dsize, (int, float)) else ""
         out.append(
-            f'<div class="stat"><div class="stat__value">{value}</div>'
-            f'<div class="stat__label">{desc}</div></div>'
+            f'<div class="stat"><div class="stat__value"{vstyle}>{value}</div>'
+            f'<div class="stat__label"{dstyle}>{desc}</div></div>'
         )
     return f'<div class="stats stats--{min(4, len(out))}">{"".join(out)}</div>'
 
@@ -303,16 +352,12 @@ def r_gallery(s, a, ctx):
     except (TypeError, ValueError):
         cols = 2
     cols = max(1, min(4, cols))
-    show_captions = bool(s.get("showCaptions"))
     out = []
     for it in items:
         media = (it or {}).get("media") or {}
         m = media_html(media, a)
-        if not m:
-            continue
-        if show_captions and media.get("caption"):
-            m = m.replace("<figure", "<figure", 1)
-        out.append(f'<div class="gallery__item">{m}</div>')
+        if m:
+            out.append(f'<div class="gallery__item">{m}</div>')
     if not out:
         return ""
     return f'<div class="gallery gallery--{cols}">{"".join(out)}</div>'
@@ -322,7 +367,9 @@ def r_accordion(s, a, ctx):
     parts = []
     intro = text_of(s.get("text"))
     if intro:
-        parts.append(f'<div class="prose">{intro}</div>')
+        align = text_align(s.get("text"))
+        cls = f"prose align-{align}" if align else "prose"
+        parts.append(f'<div class="{cls}">{intro}</div>')
     m = media_html(s.get("media") or {}, a)
     if m:
         parts.append(m)
@@ -365,16 +412,20 @@ def r_cards(s, a, ctx):
 
 def r_logowall(s, a, ctx):
     logos = s.get("logos") or []
-    out = []
+    imgs = []
     for logo in logos:
-        url = image_url(logo)
-        local = a.path(url)
+        local = a.path(image_url(logo))
         if local:
-            alt = "Logo"
-            out.append(f'<img src="{local}" alt="{alt}" loading="lazy">')
-    if not out:
+            imgs.append(f'<img src="{local}" alt="Logo" loading="lazy">')
+    if not imgs:
         return ""
-    return f'<div class="logo-wall">{"".join(out)}</div>'
+    # Carrusel continuo: se duplica la fila para el bucle de animación.
+    track = "".join(imgs)
+    return (
+        f'<div class="logo-wall" aria-label="Logotipos">'
+        f'<div class="logo-wall__track">{track}{track}</div>'
+        f"</div>"
+    )
 
 
 def r_mainheader(s, a, ctx):
@@ -382,12 +433,16 @@ def r_mainheader(s, a, ctx):
     subtitle = text_of(s.get("subtitle"))
     settings = s.get("contentSettings") or {}
     media = s.get("media") or {}
-    bg = image_url(s.get("image") or {})
-    bg_local = a.path(bg)
+    pattern = image_url(s.get("image") or {})
 
-    style = ""
-    if bg_local:
-        style = f' style="background-image:url({bg_local})"'
+    # El color de fondo (amarillo #FFD65C) y el velo blanco del JSON no se
+    # aplican: en el render real el hero es blanco con el patrón (marca de
+    # agua) repetido sutilmente.
+    style_parts = []
+    local_pat = a.path(pattern)
+    if local_pat:
+        style_parts.append(f"--hero-pattern:url({local_pat})")
+    style = f' style="{";".join(style_parts)}"' if style_parts else ""
 
     media_block = ""
     show_media = settings.get("showMedia")
@@ -403,8 +458,8 @@ def r_mainheader(s, a, ctx):
     return (
         f'<div class="case-hero"{style}><div class="container">'
         f'<div class="case-summary-grid"><div>'
-        f'<div class="prose case-hero__title-block">{title}</div>'
-        f'<div class="case-hero__role prose">{subtitle}</div>'
+        f'<div class="case-hero__title-block">{title}</div>'
+        f'<div class="case-hero__role">{subtitle}</div>'
         f"</div>{media_block}</div></div></div>"
     )
 
@@ -466,12 +521,47 @@ def render_section(section, assets, ctx):
 
 
 # --------------------------------------------------------------------------
+# Tipografía por rol
+# --------------------------------------------------------------------------
+
+
+def font_vars(font_styles: dict) -> str:
+    """Emite variables CSS --f/<s>/<w>/<lh>/<st> por cada rol tipográfico."""
+    if not font_styles:
+        return ""
+    lines = [":root{"]
+    for role, v in font_styles.items():
+        if not isinstance(v, dict):
+            continue
+        key = re.sub(r"[^a-zA-Z0-9]", "", role)
+        family = v.get("font")
+        size = v.get("size")
+        weight = v.get("fontWeight")
+        lh = v.get("lineHeight")
+        style = v.get("fontStyle")
+        if family:
+            lines.append(f"--f-{key}:{family};")
+        if isinstance(size, (int, float)):
+            lines.append(f"--s-{key}:{size}px;")
+        if weight:
+            lines.append(f"--w-{key}:{weight};")
+        if isinstance(lh, (int, float)):
+            lines.append(f"--lh-{key}:{lh}px;")
+        if style and style != "normal":
+            lines.append(f"--st-{key}:{style};")
+    lines.append("}")
+    return "".join(lines)
+
+
+# --------------------------------------------------------------------------
 # Páginas
 # --------------------------------------------------------------------------
 
 
-def page_shell(title: str, prefix: str, body: str, description: str = "") -> str:
+def page_shell(title: str, prefix: str, body: str, description: str = "",
+               font_css: str = "") -> str:
     desc = html.escape(description) if description else ""
+    style = f"<style>{font_css}</style>" if font_css else ""
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -481,8 +571,9 @@ def page_shell(title: str, prefix: str, body: str, description: str = "") -> str
 {f'<meta name="description" content="{desc}">' if desc else ''}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sora:wght@400;500;600;700&family=Bricolage+Grotesque:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="{FONT_URL}" rel="stylesheet">
 <link rel="stylesheet" href="{prefix}assets/css/style.css">
+{style}
 </head>
 <body>
 {body}
@@ -500,13 +591,12 @@ def nav_html(pages, prefix, current="home"):
         href = None
         if pg.get("type") == "home":
             href = f"{prefix}index.html"
-        elif pg.get("type") == "link":
-            href = pg.get("linkUrl")
-        elif pg.get("type") == "file":
-            href = pg.get("fileUrl")
+        elif pg.get("type") in ("file", "link"):
+            href = pg.get("url")
         if href:
             cur = ' aria-current="page"' if pg.get("type") == current else ""
-            items.append(f'<li><a href="{html.escape(href)}"{cur}>{html.escape(name)}</a></li>')
+            target = ' target="_blank" rel="noopener"' if pg.get("type") == "file" else ""
+            items.append(f'<li><a href="{html.escape(href)}"{cur}{target}>{html.escape(name)}</a></li>')
         else:
             items.append(f"<li><span>{html.escape(name)}</span></li>")
     return f'<nav class="site-nav"><div class="container"><ul>{"".join(items)}</ul></div></nav>'
@@ -542,7 +632,11 @@ def related_html(projects, current_short, prefix, portfolio):
     cards = []
     for p in others:
         thumb = p.get("localThumb") or ""
-        img = f'<div class="project-card__thumb"><img src="{thumb}" alt="" loading="lazy"></div>' if thumb else ""
+        img = (
+            f'<div class="project-card__thumb"><img src="{thumb}" alt="" loading="lazy"></div>'
+            if thumb
+            else ""
+        )
         cards.append(
             f'<a class="project-card" href="{prefix}casos/{p["shortId"]}.html">'
             f'<h3 class="project-card__title">{html.escape(p["name"])}</h3>'
@@ -562,6 +656,26 @@ def related_html(projects, current_short, prefix, portfolio):
 # --------------------------------------------------------------------------
 
 
+def slim_background(value):
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for k in ("backgroundColor", "gradientColor1", "gradientColor2",
+              "selectedBackgroundStyleId", "usingCustomBackground"):
+        if value.get(k) is not None:
+            out[k] = value[k]
+    return out or None
+
+
+def slim_overlay(value):
+    if not isinstance(value, dict):
+        return None
+    ov = value.get("overlay")
+    if isinstance(ov, dict) and isinstance(ov.get("r"), (int, float)):
+        return {"overlay": {"r": ov["r"], "g": ov["g"], "b": ov["b"], "a": ov["a"]}}
+    return None
+
+
 def trim_section(section: dict) -> dict:
     out = {}
     for key, value in section.items():
@@ -574,71 +688,64 @@ def trim_section(section: dict) -> dict:
             continue
         if key == "accordionItems":
             out[key] = [
-                {
-                    "title": {"text": text_of((i or {}).get("title"))},
-                    "content": {"text": text_of((i or {}).get("content"))},
-                }
-                for i in value or []
+                {"title": i.get("title"), "content": i.get("content")}
+                for i in (value or [])
             ]
             continue
-        # En la sección Columns es una lista; en Gallery es un entero.
+        # En Columns es una lista; en Gallery es un entero (nº de columnas).
         if key == "columns" and isinstance(value, list):
             out[key] = [
-                {
-                    "text": {"text": text_of((c or {}).get("text"))},
-                    **({"media": {"url": image_url((c or {}).get("media") or {}),
-                                  "type": ((c or {}).get("media") or {}).get("type"),
-                                  "caption": ((c or {}).get("media") or {}).get("caption")}}
-                       if image_url((c or {}).get("media") or {}) else {}),
-                }
-                for c in value or []
+                {"text": (c or {}).get("text"), "media": (c or {}).get("media")}
+                for c in value
             ]
             continue
         if key == "statItems":
             out[key] = [
-                {"data": {"text": text_of((i or {}).get("data"))},
-                 "description": {"text": text_of((i or {}).get("description"))}}
-                for i in value or []
+                {"data": (i or {}).get("data"), "description": (i or {}).get("description")}
+                for i in (value or [])
             ]
             continue
         if key == "galleryItems":
             out[key] = [
-                {"media": {"url": image_url((i or {}).get("media") or {}),
-                           "type": ((i or {}).get("media") or {}).get("type"),
-                           "caption": ((i or {}).get("media") or {}).get("caption")}}
-                for i in value or []
+                {"media": (i or {}).get("media")} for i in (value or [])
                 if image_url((i or {}).get("media") or {})
             ]
             continue
         if key == "cards":
-            out[key] = [{"text": {"text": text_of((c or {}).get("text"))}} for c in value or []]
+            out[key] = [{"text": (c or {}).get("text")} for c in (value or [])]
             continue
         if key == "logos":
             out[key] = [
                 {"url": image_url(l), "croppedImageUrl": (l or {}).get("croppedImageUrl")}
-                for l in value or []
+                for l in (value or [])
                 if image_url(l)
             ]
             continue
         if key == "processItems":
-            out[key] = [{"name": (i or {}).get("name")} for i in value or []]
+            out[key] = [{"name": (i or {}).get("name")} for i in (value or [])]
             continue
-        if key == "settings":
-            if isinstance(value, dict) and "text_position" in value:
+        if key == "backgroundSettings":
+            sb = slim_background(value)
+            if sb:
+                out[key] = sb
+            continue
+        if key == "overlaySettings":
+            so = slim_overlay(value)
+            if so:
+                out[key] = so
+            continue
+        if key == "moduleBackgroundSettings":
+            if value:
                 out[key] = value
             continue
-        if key in ("text", "title", "subtitle", "media", "cta", "contentSettings"):
-            if key in ("text", "title", "subtitle"):
-                out[key] = {"text": text_of(value)}
-            else:
-                out[key] = value
+        if key == "settings" and isinstance(value, dict) and "text_position" in value:
+            out[key] = value
             continue
         out[key] = value
     return out
 
 
 def find_url(obj, depth=0):
-    """Busca recursivamente la primera URL de archivo o enlace."""
     if depth > 4:
         return None
     if isinstance(obj, str):
@@ -671,9 +778,10 @@ def prepare(raw: dict) -> dict:
             "name": pg.get("name"),
             "order": pg.get("order", 0),
             "sections": [trim_section(s) for s in pg.get("sections") or []],
+            "fontStyles": (pg.get("designSettings") or {}).get("fontStyles") or {},
         }
         if pg.get("type") in ("file", "link"):
-            entry["linkUrl"] = find_url(pg.get("settings") or {}) or find_url(pg)
+            entry["url"] = find_url(pg.get("settings") or {}) or find_url(pg)
         pages.append(entry)
 
     projects = []
@@ -691,6 +799,7 @@ def prepare(raw: dict) -> dict:
                 "thumbnail": image_url(cs.get("image") or {}),
                 "draft": bool(cs.get("draft")),
                 "sections": [trim_section(s) for s in cs.get("sections") or []],
+                "fontStyles": (cs.get("designSettings") or {}).get("fontStyles") or {},
             }
         )
     projects.sort(key=lambda p: p.get("order", 0))
@@ -765,13 +874,12 @@ def main() -> int:
     projects = content["caseStudies"]
     portfolio = content["portfolio"]
 
-    # El menú apunta a los archivos locales cuando ya los tenemos descargados
-    # (p. ej. el PDF del currículum) en lugar de al CDN de la plataforma.
+    # Resolver a local los archivos del menú (p. ej. el PDF del currículum).
     for page in pages:
-        if page.get("linkUrl"):
-            local = assets.path(page["linkUrl"])
+        if page.get("url"):
+            local = assets.path(page["url"])
             if local:
-                page["linkUrl"] = local
+                page["url"] = local
 
     unknown: set[str] = set()
     unknown_case: set[str] = set()
@@ -783,14 +891,7 @@ def main() -> int:
         print("ERROR: no hay página home.", file=sys.stderr)
         return 1
 
-    ctx = {
-        "projects": [
-            {**p, "thumbnail": p.get("thumbnail")} for p in projects
-        ],
-        "prefix": "",
-        "unknown": unknown,
-        "in_case": False,
-    }
+    ctx = {"projects": projects, "prefix": "", "unknown": unknown, "in_case": False}
     body_parts = [nav_html(pages, "", current="home")]
     hero_local = assets.path(portfolio.get("heroImage") or "")
     if hero_local:
@@ -808,6 +909,7 @@ def main() -> int:
             "",
             "\n".join(p for p in body_parts if p),
             "Portafolio de Raúl Pérez Chávez — Senior Product & Interaction Designer.",
+            font_css=font_vars(home.get("fontStyles") or {}),
         ),
         encoding="utf-8",
     )
@@ -816,20 +918,13 @@ def main() -> int:
 
     # --- casos de estudio --------------------------------------------------
     for project in projects:
-        ctx_case = {
-            "projects": projects,
-            "prefix": "../",
-            "unknown": unknown_case,
-            "in_case": True,
-        }
+        ctx_case = {"projects": projects, "prefix": "../", "unknown": unknown_case,
+                    "in_case": True}
+        avatar = assets_case.path(image_url(portfolio["user"]["image"]))
         header = (
             f'<header class="case-header"><div class="container">'
             f'<div class="case-header__inner">'
-            + (
-                f'<img class="case-header__avatar" src="{assets_case.path(image_url(portfolio["user"]["image"]))}" alt="">'
-                if assets_case.path(image_url(portfolio["user"]["image"]))
-                else ""
-            )
+            + (f'<img class="case-header__avatar" src="{avatar}" alt="">' if avatar else "")
             + f'<div><div class="case-header__name">{html.escape(portfolio["user"]["name"])}</div>'
             f'<div class="case-header__role">Senior Product &amp; Interaction Designer</div>'
             f"</div></div></div></header>"
@@ -857,19 +952,19 @@ def main() -> int:
                 "../",
                 "\n".join(p for p in parts if p),
                 project.get("subtitle") or "",
+                font_css=font_vars(project.get("fontStyles") or {}),
             ),
             encoding="utf-8",
         )
         print(f"escrito -> casos/{project['shortId']}.html")
     missing |= assets_case.missing
 
-    # --- informe -----------------------------------------------------------
     print()
     print(f"proyectos: {len(projects)}")
     if unknown:
-        print(f"AVISO tipos de sección sin renderizador (home): {sorted(unknown)}")
+        print(f"AVISO tipos sin renderizador (home): {sorted(unknown)}")
     if unknown_case:
-        print(f"AVISO tipos de sección sin renderizador (casos): {sorted(unknown_case)}")
+        print(f"AVISO tipos sin renderizador (casos): {sorted(unknown_case)}")
     if missing:
         print(f"AVISO imágenes no encontradas localmente: {len(missing)}")
         for name in sorted(missing)[:10]:
