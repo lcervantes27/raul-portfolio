@@ -51,6 +51,13 @@ def slugify(value: str) -> str:
     return re.sub(r"[-\s]+", "-", value)[:60] or "proyecto"
 
 
+def clean_name(value: str) -> str:
+    """Quita el sufijo de idioma que la plataforma añade al nombre (p. ej. ' English')."""
+    if not value:
+        return ""
+    return re.sub(r"\s+(English|Spanish|Español)\s*$", "", value).strip()
+
+
 def col_span(section: dict) -> int:
     """Ancho de la sección en la retícula de 12 columnas, si está declarado."""
     modules = ((section.get("layoutSettings") or {}).get("modules") or [])
@@ -691,7 +698,7 @@ def prepare(raw: dict) -> dict:
     return {
         "portfolio": {
             "shortId": portfolio.get("shortId"),
-            "name": portfolio.get("name"),
+            "name": clean_name(portfolio.get("name")),
             "socialLinks": portfolio.get("socialLinks") or [],
             "logo": portfolio.get("logo") or {},
             "heroImage": image_url((portfolio.get("portfolioHero") or {}).get("image") or {}),
