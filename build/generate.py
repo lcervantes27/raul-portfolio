@@ -49,6 +49,15 @@ FONT_URL = (
     "display=swap"
 )
 
+# Animación de entrada (SCALE) para los casos que la declaran. Script propio.
+ANIM_SCRIPT = """<script>
+(function(){var els=document.querySelectorAll('.sec,.case-hero,.hero,.project-grid');
+if(!('IntersectionObserver' in window)){for(var i=0;i<els.length;i++){els[i].classList.add('in-view');}return;}
+var io=new IntersectionObserver(function(entries){for(var i=0;i<entries.length;i++){var e=entries[i];
+if(e.isIntersecting){e.target.classList.add('in-view');io.unobserve(e.target);}}},{threshold:0.08,rootMargin:'0px 0px -8% 0px'});
+for(var i=0;i<els.length;i++){io.observe(els[i]);}})();
+</script>"""
+
 
 # --------------------------------------------------------------------------
 # Utilidades
@@ -470,7 +479,9 @@ def r_projectgrid(s, a, ctx):
     for p in projects:
         thumb = a.path(p.get("thumbnail") or "")
         img = (
-            f'<div class="project-card__thumb"><img src="{thumb}" alt="" loading="lazy"></div>'
+            f'<div class="project-card__thumb">'
+            f'<div class="mockup mockup--mobile mockup--card"><img src="{thumb}" alt="" loading="lazy"></div>'
+            f"</div>"
             if thumb
             else ""
         )
@@ -559,9 +570,11 @@ def font_vars(font_styles: dict) -> str:
 
 
 def page_shell(title: str, prefix: str, body: str, description: str = "",
-               font_css: str = "") -> str:
+               font_css: str = "", anim: str = "") -> str:
     desc = html.escape(description) if description else ""
     style = f"<style>{font_css}</style>" if font_css else ""
+    anim_attr = f' data-anim="{anim}"' if anim else ""
+    anim_script = (ANIM_SCRIPT + '<noscript><style>body[data-anim="scale"] .sec,body[data-anim="scale"] .case-hero,body[data-anim="scale"] .hero,body[data-anim="scale"] .project-grid{opacity:1;transform:none}</style></noscript>') if anim == "scale" else ""
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -575,8 +588,9 @@ def page_shell(title: str, prefix: str, body: str, description: str = "",
 <link rel="stylesheet" href="{prefix}assets/css/style.css">
 {style}
 </head>
-<body>
+<body{anim_attr}>
 {body}
+{anim_script}
 </body>
 </html>
 """
@@ -623,7 +637,7 @@ def footer_html(portfolio, prefix):
     )
 
 
-def related_html(projects, current_short, prefix, portfolio):
+def related_html(projects, current_short, prefix, portfolio, assets):
     block = portfolio.get("relatedCaseStudyFooter") or {}
     title = text_of(block.get("title")) or "<h3>Más casos de estudio</h3>"
     others = [p for p in projects if p["shortId"] != current_short][:4]
@@ -631,9 +645,11 @@ def related_html(projects, current_short, prefix, portfolio):
         return ""
     cards = []
     for p in others:
-        thumb = p.get("localThumb") or ""
+        thumb = assets.path(p.get("thumbnail") or "")
         img = (
-            f'<div class="project-card__thumb"><img src="{thumb}" alt="" loading="lazy"></div>'
+            f'<div class="project-card__thumb">'
+            f'<div class="mockup mockup--mobile mockup--card"><img src="{thumb}" alt="" loading="lazy"></div>'
+            f"</div>"
             if thumb
             else ""
         )
@@ -800,6 +816,7 @@ def prepare(raw: dict) -> dict:
                 "draft": bool(cs.get("draft")),
                 "sections": [trim_section(s) for s in cs.get("sections") or []],
                 "fontStyles": (cs.get("designSettings") or {}).get("fontStyles") or {},
+                "animationStyle": ((cs.get("designSettings") or {}).get("animationSettings") or {}).get("animationStyle"),
             }
         )
     projects.sort(key=lambda p: p.get("order", 0))
@@ -944,8 +961,9 @@ def main() -> int:
             rest = project["sections"]
         for section in rest:
             parts.append(render_section(section, assets_case, ctx_case))
-        parts.append(related_html(projects, project["shortId"], "../", portfolio))
+        parts.append(related_html(projects, project["shortId"], "../", portfolio, assets_case))
         parts.append(footer_html(portfolio, "../"))
+        anim = "scale" if project.get("animationStyle") == "SCALE" else ""
         (case_dir / f"{project['shortId']}.html").write_text(
             page_shell(
                 f'{project["name"]} — Raúl Pérez Chávez',
@@ -953,6 +971,7 @@ def main() -> int:
                 "\n".join(p for p in parts if p),
                 project.get("subtitle") or "",
                 font_css=font_vars(project.get("fontStyles") or {}),
+                anim=anim,
             ),
             encoding="utf-8",
         )

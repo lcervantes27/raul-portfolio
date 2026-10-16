@@ -6713,7 +6713,8 @@
      "fontStyle": "normal",
      "scale": null
     }
-   }
+   },
+   "animationStyle": "NONE"
   },
   {
    "shortId": "38363f97",
@@ -9257,7 +9258,8 @@
      "fontStyle": "normal",
      "scale": null
     }
-   }
+   },
+   "animationStyle": "SCALE"
   },
   {
    "shortId": "ae8416c2",
@@ -12069,7 +12071,8 @@
      "fontStyle": "normal",
      "scale": null
     }
-   }
+   },
+   "animationStyle": "SCALE"
   },
   {
    "shortId": "7e1e07d1",
@@ -14326,7 +14329,8 @@
      "fontStyle": "normal",
      "scale": null
     }
-   }
+   },
+   "animationStyle": "SCALE"
   },
   {
    "shortId": "0495b157",
@@ -18135,7 +18139,8 @@
      "fontStyle": "normal",
      "scale": null
     }
-   }
+   },
+   "animationStyle": "SCALE"
   },
   {
    "shortId": "045c698f",
@@ -19724,7 +19729,8 @@
      "fontStyle": "normal",
      "scale": null
     }
-   }
+   },
+   "animationStyle": "NONE"
   }
  ]
 }
