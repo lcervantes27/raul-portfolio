@@ -66,5 +66,6 @@ python3 build/generate.py --source /ruta/al/portfolio-data.json
   Para verlos hay que servir el sitio por HTTP (por ejemplo
   `python3 -m http.server`); abierto directamente como `file://` YouTube
   rechaza la reproducción por falta de referente.
-- **Tipografías.** Se cargan Inter, Sora y Bricolage Grotesque desde Google
-  Fonts, las tres familias que usa el diseño original.
+- **Tipografías.** Se cargan Inter, Roboto, Sora y Bricolage Grotesque desde
+  Google Fonts. La portada usa Inter (h1 56px, p 22px gris) y los casos de
+  estudio usan Roboto (h1 55px, p 18px gris), igual que el diseño original.

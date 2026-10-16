@@ -6,9 +6,9 @@
 :root {
   --bg: #fefefe;
   --bg-alt: #f7f6f4;
-  --ink: #0d0d0d;
-  --ink-soft: #1e1c1b;
-  --muted: #6b6b6b;
+  --ink: #000000;
+  --ink-soft: #212529;
+  --muted: #727272;
   --line: #e6e4e1;
   --accent: #fec32b;
   --peach: #fef3e8;
@@ -145,6 +145,14 @@ h4 {
 
 .prose {
   max-width: var(--measure);
+  color: var(--muted);
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  color: var(--ink);
 }
 
 .prose p {

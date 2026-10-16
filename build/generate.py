@@ -49,6 +49,25 @@ FONT_URL = (
     "display=swap"
 )
 
+# Tipografía medida del render real de la portada (Inter; los valores del JSON
+# de fontStyles no coinciden con lo que el sitio publica).
+CORRECTED_HOME_FONTS = {
+    "heroTitle": {"font": "Inter", "size": 56, "lineHeight": 60, "fontWeight": "700"},
+    "heroSubtitle": {"font": "Inter", "size": 22, "lineHeight": 30, "fontWeight": "400"},
+    "h1": {"font": "Inter", "size": 56, "lineHeight": 60, "fontWeight": "700"},
+    "h2": {"font": "Inter", "size": 44, "lineHeight": 50, "fontWeight": "700"},
+    "h3": {"font": "Inter", "size": 30, "lineHeight": 36, "fontWeight": "700"},
+    "h4": {"font": "Inter", "size": 28, "lineHeight": 36, "fontWeight": "700"},
+    "p1": {"font": "Inter", "size": 22, "lineHeight": 30, "fontWeight": "400"},
+    "p2": {"font": "Inter", "size": 22, "lineHeight": 30, "fontWeight": "400", "fontStyle": "italic"},
+    "navigation": {"font": "Inter", "size": 18, "lineHeight": 26, "fontWeight": "400"},
+    "button": {"font": "Inter", "size": 18, "lineHeight": 26, "fontWeight": "400"},
+    "label": {"font": "Inter", "size": 12, "lineHeight": 18, "fontWeight": "400"},
+    "projectTitle": {"font": "Inter", "size": 36, "lineHeight": 41, "fontWeight": "700"},
+    "projectSubtitle": {"font": "Inter", "size": 20, "lineHeight": 25, "fontWeight": "400"},
+}
+
+
 # Animación de entrada (SCALE) para los casos que la declaran. Script propio.
 ANIM_SCRIPT = """<script>
 (function(){var els=document.querySelectorAll('.sec,.case-hero,.hero,.project-grid');
@@ -927,7 +946,7 @@ def main() -> int:
             "",
             "\n".join(p for p in body_parts if p),
             "Portafolio de Raúl Pérez Chávez — Senior Product & Interaction Designer.",
-            font_css=font_vars(home.get("fontStyles") or {}),
+            font_css=font_vars(CORRECTED_HOME_FONTS),
         ),
         encoding="utf-8",
     )
